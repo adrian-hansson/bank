@@ -1,0 +1,8 @@
+# Don't keep any input or output files in the repository...
+output/*
+input/*
+
+# ...except for these!
+# So that the empty directories are kept in the repository.
+!output/.gitkeep
+!input/.gitkeep
