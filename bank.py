@@ -232,6 +232,18 @@ def load_and_transform_data_from_sources(
     return data
 
 def aggregate_report(title: str, by_column: str, aggregation_mappings: dict, data: pd.DataFrame, is_daily: bool = False) -> pd.DataFrame:
+    # if title includes /, save the part before the / as folder path
+    # then save the whole title with / replaced by -
+    folder_path = ''
+    if '/' in title:
+        segments: List[str] = title.split('/')
+        # everything but the last segment is the folder path
+        folder_path: str = '/'.join(segments[:-1])
+        os.makedirs(f"output/{folder_path}", exist_ok=True)
+    os.makedirs(f"output", exist_ok=True)
+    
+    file_name = title.replace('/', '-')
+    
     # Create a new mapping without the groupby column
     aggregation_mappings_without_groupby_column = aggregation_mappings.copy()
     aggregation_mappings_without_groupby_column.pop(by_column, None)
@@ -242,9 +254,11 @@ def aggregate_report(title: str, by_column: str, aggregation_mappings: dict, dat
     # Top 25 Amounts
     top_25_amounts = aggregated.nlargest(25, 'Amount').sort_values('Amount', ascending=False)
     
+    path_to: str = f"output/{folder_path}/{file_name}"
+    
     # Save data to CSV
-    aggregated.to_csv(f"output/{title}-dataAll.csv", index=False)
-    top_25_amounts.to_csv(f"output/{title}-dataTop25.csv", index=False)
+    aggregated.to_csv(f"{path_to}-dataAll.csv", index=False)
+    top_25_amounts.to_csv(f"{path_to}-dataTop25.csv", index=False)
     
     # Plot a bar chart
     figsize = dynamic_figsize(aggregated[by_column])
@@ -255,11 +269,26 @@ def aggregate_report(title: str, by_column: str, aggregation_mappings: dict, dat
     plt.title(title)
     plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.savefig(f"output/{title}-diagramBar.png")
+    plt.savefig(f"{path_to}-diagramBar.png")
+    plt.close()
 
     return aggregated
 
-def generate_reports() -> None:
+def generate_reports(data: pd.DataFrame, aggregation_mappings: dict, prefix: str = '') -> None:
+    prefix_path: str = f"output/{prefix}"
+    os.makedirs(prefix_path, exist_ok=True)
+
+    expenses_by_date: pd.DataFrame = aggregate_report(prefix + 'a-byDate', 'Date', aggregation_mappings, data, is_daily=True)
+    expenses_by_weekday: pd.DataFrame = aggregate_report(prefix + 'b-byWeekday', 'Weekday', aggregation_mappings, expenses_by_date)
+    expenses_by_week: pd.DataFrame = aggregate_report(prefix + 'c-byWeek', 'Week', aggregation_mappings, expenses_by_date)
+    expenses_by_month: pd.DataFrame = aggregate_report(prefix + 'd-byMonth', 'Month', aggregation_mappings, expenses_by_date)
+    expenses_by_month_name: pd.DataFrame = aggregate_report(prefix + 'e-byMonthName', 'MonthName', aggregation_mappings, expenses_by_date)
+    expenses_by_quarter: pd.DataFrame = aggregate_report(prefix + 'f-byQuarter', 'Quarter', aggregation_mappings, expenses_by_date)
+    expenses_by_season: pd.DataFrame = aggregate_report(prefix + 'g-bySeason', 'Season', aggregation_mappings, expenses_by_date)
+    expenses_by_year: pd.DataFrame = aggregate_report(prefix + 'h-byYear', 'Year', aggregation_mappings, expenses_by_date)
+    expenses_by_category: pd.DataFrame = aggregate_report(prefix + 'i-byCategory', 'Category', aggregation_mappings, expenses_by_date)     
+
+def main() -> None:
     # Load settings
     settings = load_settings()
     
@@ -311,14 +340,18 @@ def generate_reports() -> None:
     for column_to_aggregate_by in columns_to_aggregate_by:
         expenses[f"{column_to_aggregate_by}"] = expenses[f"{column_to_aggregate_by}"].abs()
     
-    # Now let's aggregate the data by day, and use this as the base for all other reports
-    expenses_all_by_date: pd.DataFrame = aggregate_report('expenses-byDate', 'Date', aggregation_mappings, expenses, is_daily=True)
-    expenses_all_by_weekday: pd.DataFrame = aggregate_report('expenses-byWeekday', 'Weekday', aggregation_mappings, expenses_all_by_date)
-    expenses_all_by_week: pd.DataFrame = aggregate_report('expenses-byWeek', 'Week', aggregation_mappings, expenses_all_by_date)
-    expenses_all_by_month: pd.DataFrame = aggregate_report('expenses-byMonth', 'Month', aggregation_mappings, expenses_all_by_date)
-    expenses_all_by_quarter: pd.DataFrame = aggregate_report('expenses-byQuarter', 'Quarter', aggregation_mappings, expenses_all_by_date)
-    expenses_all_by_season: pd.DataFrame = aggregate_report('expenses-bySeason', 'Season', aggregation_mappings, expenses_all_by_date)
-    expenses_all_by_year: pd.DataFrame = aggregate_report('expenses-byYear', 'Year', aggregation_mappings, expenses_all_by_date)
+    # Reports for all time
+    generate_reports(expenses, aggregation_mappings, prefix='expenses/')
+    
+    # Reports per year
+    years: List[str] = expenses['Year'].unique().tolist()
+    for year in years:
+        expenses_year = expenses[expenses['Year'] == year]
+        generate_reports(expenses_year, aggregation_mappings, prefix=f"expenses/{year}/")
+        months = expenses_year['Month'].unique().tolist()
+        # for month in months:
+        #     expenses_month = expenses_year[expenses_year['Month'] == month]
+        #     generate_reports(expenses_month, aggregation_mappings, prefix=f"expenses/{year}/{month}/")
     
     # Incomes
     incomes = data[data['Type'] == 'Income']
@@ -339,9 +372,6 @@ def generate_reports() -> None:
     with open("output/uncategorized.txt", "w", encoding="utf-8") as file:
         for text in uncategorized_text:
             file.write(text + "\n")
-
-def main() -> None:
-    generate_reports()
 
 if __name__ == "__main__":
     main()
